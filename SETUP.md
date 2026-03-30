@@ -1,29 +1,36 @@
 # HunyuanCustom — RunPod Setup Guide
 
-## Differenza rispetto a HunyuanVideo-1.5 i2v
+## Cos'è HunyuanCustom (vs HunyuanVideo-1.5 i2v)
 
 | Aspetto | HunyuanVideo-1.5 i2v | HunyuanCustom |
 |---|---|---|
-| Uso dell'immagine | Primo frame del video — prospettiva bloccata sull'immagine | Riferimento di identità soggetto (LLaVA) — prospettiva libera |
+| Uso dell'immagine | Primo frame del video — prospettiva bloccata sull'immagine | Riferimento identità soggetto (LLaVA) — prospettiva libera |
 | Controllo camera | Dipende dal punto di vista dell'immagine | Guidato dal prompt testuale |
-| Caso d'uso | Continuazione naturale di un'immagine | Soggetto specifico in scene diverse / camera motion dal testo |
-| Prompt rewriting | Sì (Claude, opzionale) | No |
+| Caso d'uso | Continuazione naturale di un'immagine | Soggetto in scene diverse, camera motion da testo |
 
-> Per generare un walkthrough in prima persona lungo la Via Appia da un'immagine **laterale/panoramica**, HunyuanCustom è l'approccio giusto: l'immagine viene usata come riferimento visivo (architettura, stile, texture) ma la prospettiva camera segue il prompt.
+> **Via Appia:** con HunyuanVideo i2v l'immagine laterale blocca la prospettiva — il video parte dal punto di vista della foto. Con HunyuanCustom l'immagine è solo un riferimento visivo (stile, architettura, texture) e la prospettiva camera segue il prompt: utile per generare il walkthrough in prima persona.
 
 ---
 
-## Prerequisiti
+## Token e risorse RunPod
 
-Nessun token obbligatorio. HuggingFace token opzionale se vuoi evitare rate-limiting:
+**Token:** nessuno obbligatorio. HF_TOKEN opzionale per evitare rate-limiting HuggingFace.
 
 ```bash
 export HF_TOKEN="hf_..."    # opzionale
 ```
 
+**Risorse consigliate:**
+
+| Risorsa | Valore | Note |
+|---|---|---|
+| Network Volume (disco) | **75 GB** | per un modello alla volta |
+| GPU per generazione | **A100 40GB** | fp8 a 720×1280 |
+| GPU alternativa | RTX 4090 (24GB) | fp8 a 512×896, più lento |
+
 ---
 
-## Caso 1 — Nuovo pod, workspace esistente
+## Caso 1 — Pod già configurato (workspace esistente)
 
 Il Network Volume ha già repo, venv e modelli. Basta attivare il venv:
 
@@ -33,24 +40,54 @@ git pull
 source .venv/bin/activate
 ```
 
-Poi lancia lo script di generazione.
+Poi lancia lo script di generazione desiderato.
 
 ---
 
 ## Caso 2 — Nuovo workspace (da zero)
 
-Il flusso ottimale usa **due pod separati**: uno CPU economico per scaricare i modelli, uno GPU per installare le dipendenze e generare.
+Il flusso ottimale usa due pod separati: uno CPU economico per scaricare i modelli, uno GPU per installare le dipendenze e generare.
 
-> **Perché separare?** Il venv va creato sul pod GPU — così torch viene installato con la versione CUDA corretta del sistema. Su un pod CPU si installerebbe torch senza CUDA e il modello non userebbe la GPU.
+> **Perché separare?** Il venv va creato sul pod GPU — così torch viene installato con la versione CUDA corretta. Se creato su un pod CPU, torch non avrebbe supporto CUDA e il modello non userebbe la GPU.
 
-### Step 1 — Pod CPU: clone repo + download modelli (~38 GB)
+### Step 1 — Pod CPU: clone repo + download modelli
+
+Crea un pod CPU con il Network Volume montato su `/workspace`, poi:
 
 ```bash
 export HF_TOKEN="hf_..."   # opzionale
+bash <(curl -s https://raw.githubusercontent.com/samcoppola/HunyuanCustom/main/download_only.sh)
+```
+
+Oppure se il repo è già clonato:
+
+```bash
+cd /workspace/HunyuanCustom
 bash download_only.sh
 ```
 
-Stoppa il pod CPU quando finisce.
+**Stoppa il pod CPU** quando il download è completato.
+
+#### Scegliere cosa scaricare
+
+`download_only.sh` accetta i nomi dei modelli come argomenti (default: `base image-720p`):
+
+```bash
+bash download_only.sh base image-720p      # Via Appia / image customization (~38 GB) ← default
+bash download_only.sh base audio-720p      # audio-driven (~38 GB)
+bash download_only.sh base editing-720p    # video editing / object replacement (~38 GB)
+bash download_only.sh base image-720p dwpose  # image + pose estimation (~38.3 GB)
+```
+
+Oppure usa `download_models.py` direttamente per più controllo:
+
+```bash
+python download_models.py base             # solo base (~18 GB)
+python download_models.py image-720p       # aggiunge solo il modello immagine (~20 GB)
+python download_models.py audio-720p       # aggiunge solo il modello audio (~20 GB)
+python download_models.py editing-720p     # aggiunge solo il modello editing (~20 GB)
+python download_models.py dwpose           # aggiunge DWPose (~0.3 GB)
+```
 
 ### Step 2 — Pod GPU: venv + dipendenze
 
@@ -61,44 +98,52 @@ cd /workspace/HunyuanCustom
 bash setup_gpu.sh
 ```
 
-`setup_gpu.sh` rileva automaticamente la versione CUDA e installa torch corrispondente, poi il resto delle dipendenze.
+`setup_gpu.sh` rileva automaticamente la versione CUDA (11.8 / 12.1 / 12.4) e installa torch con il wheel corretto, poi il resto delle dipendenze.
 
-> **Flash-attention** (opzionale, migliora la velocità su A100/H100, compila in 30+ min):
+> **Flash-attention** (opzionale, migliora la velocità su A100/H100, compilazione ~30 min):
 > ```bash
 > INSTALL_FLASH_ATTN=true bash setup_gpu.sh
 > ```
 
 ### Step 3 — Carica la tua immagine
 
-Carica l'immagine tramite Jupyter in `/workspace/HunyuanCustom/`.
-
-### Download modelli aggiuntivi (opzionale)
-
-```bash
-source .venv/bin/activate
-
-python download_models.py base audio-720p      # audio-driven (~38 GB)
-python download_models.py base editing-720p    # video editing (~38 GB)
-```
+Carica l'immagine di riferimento (es. `appia_strada.png`) tramite **Jupyter** in `/workspace/HunyuanCustom/`.
 
 ---
 
-## Modelli
+## Caso 3 — Venv già creato su pod CPU (fix torch CUDA)
 
-| Directory | Dimensione | Uso | Note |
+Se il venv è stato creato su un pod CPU, torch non ha supporto CUDA. Sul pod GPU:
+
+```bash
+cd /workspace/HunyuanCustom
+source .venv/bin/activate
+
+# Reinstalla torch con CUDA (sostituisce la versione CPU):
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
+    --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+
+# Verifica:
+python -c "import torch; print(torch.cuda.is_available())"
+# deve stampare: True
+```
+
+Usa `cu118` al posto di `cu124` se il pod ha CUDA 11.8.
+
+---
+
+## Modelli disponibili
+
+| Modello | Dimensione | Uso | Scaricato di default |
 |---|---|---|---|
-| `hunyuancustom_720P` (fp8) | ~20 GB | image customization | **sempre richiesto** |
-| `vae_3d` | ~1 GB | tutti | encoder/decoder video |
-| `llava-llama-3-8b-v1_1` | ~15 GB | tutti | comprensione immagine |
-| `openai_clip-vit-large-patch14` | ~1.7 GB | tutti | embedding visivo |
-| `hunyuancustom_audio_720P` | ~20 GB | audio-driven | skippato di default |
-| `hunyuancustom_editing_720P` | ~20 GB | video editing | skippato di default |
-| `DWPose` | ~300 MB | video umani | skippato di default |
-| `whisper-tiny` | ~150 MB | audio-driven | skippato di default |
+| `base` (vae_3d + llava + clip) | ~18 GB | tutti — sempre richiesto | sì |
+| `image-720p` (hunyuancustom_720P fp8) | ~20 GB | image/subject customization | sì |
+| `audio-720p` (hunyuancustom_audio_720P fp8 + whisper) | ~20 GB | audio-driven (lipsync) | no |
+| `editing-720p` (hunyuancustom_editing_720P fp8) | ~20 GB | video editing / object replacement | no |
+| `dwpose` | ~0.3 GB | miglioramento pose per video umani | no |
 
-**Spazio disco minimo:** ~38 GB (solo image customization con fp8)
+**Liberare spazio** (se hai scaricato più modelli):
 
-**Liberare spazio** (se scaricato tutto):
 ```bash
 rm -rf models/hunyuancustom_audio_720P
 rm -rf models/hunyuancustom_editing_720P
@@ -107,76 +152,50 @@ rm -rf models/whisper-tiny
 
 ---
 
-## VRAM
+## VRAM richiesta
 
-| Configurazione | VRAM | Risoluzione | Note |
+| Configurazione | VRAM | Risoluzione | Velocità |
 |---|---|---|---|
-| `DISABLE_SP=1` + `--use-fp8` | ~24 GB | 512×896 | RTX 3090/4090, più veloce |
-| `CPU_OFFLOAD=1` + `--use-fp8` + `--cpu-offload` | ~8 GB | 720×1280 | molto lento |
-| Multi-GPU (`torchrun`) | 80 GB (8×GPU) | 720×1280 | qualità massima |
+| fp8 + `DISABLE_SP=1` | ~24 GB | 512×896 | veloce |
+| fp8 + `DISABLE_SP=1` | ~40 GB | 720×1280 | media |
+| fp8 + `CPU_OFFLOAD=1` + `--cpu-offload` | ~8 GB | 720×1280 | molto lenta |
 
 ---
 
 ## Generazione
 
-Ogni script ha le variabili editabili in cima al file (`REF_IMAGE`, `POS_PROMPT`, `N_FRAMES`, ecc.).
+Ogni script ha le variabili editabili in cima (`REF_IMAGE`, `POS_PROMPT`, `N_FRAMES`, ecc.).
 
-| Script | Task | Modelli richiesti | VRAM |
+| Script | Task | Modello richiesto | VRAM |
 |---|---|---|---|
-| `bash run_image_512p.sh` | Image customization 512×896 | hunyuancustom_720P (fp8) + base | ~24 GB |
-| `bash run_image_720p.sh` | Image customization 720×1280 | hunyuancustom_720P (fp8) + base | ~40 GB |
-| `bash run_audio_512p.sh` | Audio-driven 512×896 | hunyuancustom_audio_720P + base + whisper | ~24 GB |
-| `bash run_audio_720p.sh` | Audio-driven 720×1280 | hunyuancustom_audio_720P + base + whisper | ~40 GB |
-| `bash run_editing_720p.sh` | Video editing / object replacement | hunyuancustom_editing_720P + base | ~40 GB |
-| `bash run_via_appia_custom.sh` | Via Appia (preconfigurato) | hunyuancustom_720P (fp8) + base | ~24 GB |
+| `bash run_image_512p.sh` | Image customization 512×896 | image-720p + base | ~24 GB |
+| `bash run_image_720p.sh` | Image customization 720×1280 | image-720p + base | ~40 GB |
+| `bash run_audio_512p.sh` | Audio-driven 512×896 | audio-720p + base | ~24 GB |
+| `bash run_audio_720p.sh` | Audio-driven 720×1280 | audio-720p + base | ~40 GB |
+| `bash run_editing_720p.sh` | Video editing / object replacement | editing-720p + base | ~40 GB |
+| `bash run_via_appia_custom.sh` | Via Appia Antica (preconfigurato) | image-720p + base | ~24 GB |
 
-> "Base" = vae_3d + llava-llama-3-8b-v1_1 + openai_clip (sempre richiesti, inclusi nel setup default).
+### Via Appia — script preconfigurato
 
-### Via Appia (script preconfigurato)
-
-```bash
-cd /workspace/HunyuanCustom
-bash run_via_appia_custom.sh
-```
-
-> Modifica le variabili in cima allo script (`REF_IMAGE`, `VIDEO_SIZE_H/W`, `N_FRAMES`).
-
-### Comando manuale (single GPU)
+Lo script `run_via_appia_custom.sh` ha già il prompt completo e usa `appia_strada.png` come immagine di riferimento. Modifica in cima allo script se necessario:
 
 ```bash
 cd /workspace/HunyuanCustom
 source .venv/bin/activate
-
-export MODEL_BASE="./models"
-export DISABLE_SP=1
-export PYTHONPATH=./
-
-python hymm_sp/sample_gpu_poor.py \
-    --ref-image './tua_immagine.png' \
-    --pos-prompt "Realistic, High-quality. [descrizione scena e movimento camera]" \
-    --neg-prompt "Aerial view, overexposed, low quality, deformation, distortion, blurring, text, subtitles, static, black border." \
-    --ckpt models/hunyuancustom_720P/mp_rank_00_model_states_fp8.pt \
-    --video-size 512 896 \
-    --sample-n-frames 65 \
-    --cfg-scale 7.5 \
-    --seed 1024 \
-    --infer-steps 30 \
-    --use-deepcache 1 \
-    --flow-shift-eval-video 13.0 \
-    --save-path ./results/output \
-    --use-fp8
+bash run_via_appia_custom.sh
 ```
+
+Output in `./results/via_appia_custom/`.
 
 ### Parametri utili
 
 | Parametro | Valori | Note |
 |---|---|---|
-| `--video-size` | `512 896` / `720 1280` | 512×896 per 24GB, 720×1280 per 40GB+ |
+| `--video-size` | `512 896` / `720 1280` | 512×896 per 24 GB, 720×1280 per 40 GB+ |
 | `--sample-n-frames` | 65 / 129 | 65 ≈ 4s, 129 ≈ 8s |
-| `--cfg-scale` | 7.5 | guidance scale, aumenta per più aderenza al prompt |
-| `--infer-steps` | 30 | passi di inferenza, aumenta per qualità (più lento) |
-| `--use-deepcache 1` | — | ottimizzazione velocità, disabilita se artefatti |
-| `--use-fp8` | — | riduce VRAM, necessario su GPU consumer |
-| `--cpu-offload` | — | offload CPU, usa con `CPU_OFFLOAD=1`, molto lento |
-
-I video vengono salvati in `./results/`.
+| `--cfg-scale` | 7.5 | guidance scale — aumenta per più aderenza al prompt |
+| `--infer-steps` | 30 | passi di inferenza — aumenta per qualità (più lento) |
+| `--use-deepcache 1` | — | ottimizzazione velocità — disabilita se compaiono artefatti |
+| `--use-fp8` | — | riduce VRAM — necessario su GPU consumer |
+| `--cpu-offload` | — | offload su CPU — usa con `CPU_OFFLOAD=1`, molto lento |
+| `--seed` | qualsiasi intero | fissa il seed per risultati riproducibili |
