@@ -70,11 +70,27 @@ echo "    Dipendenze installate."
 
 # ── 3. Download models ────────────────────────────────────────────
 echo ""
-echo "[3/3] Downloading models (base + image-720p, ~38 GB)..."
-echo "      Può richiedere 30-60 minuti."
+echo "[3/3] Download modelli..."
+echo ""
+echo "  Modelli disponibili (passali come argomenti a questo script):"
+echo "    base          vae_3d + llava + clip (~18 GB)  — SEMPRE RICHIESTO"
+echo "    image-720p    hunyuancustom_720P fp8 (~20 GB)  — image customization"
+echo "    audio-720p    hunyuancustom_audio_720P fp8 + whisper (~20 GB)"
+echo "    editing-720p  hunyuancustom_editing_720P fp8 (~20 GB)"
+echo "    dwpose        DWPose (~0.3 GB)  — solo per video con persone"
+echo ""
+echo "  Esempi:"
+echo "    bash setup_runpod.sh base image-720p     # default (~38 GB)"
+echo "    bash setup_runpod.sh base audio-720p"
+echo "    bash setup_runpod.sh base editing-720p"
 echo ""
 
-python download_models.py base image-720p
+# Default se nessun argomento passato
+MODELS="${@:-base image-720p}"
+echo "  Scarico: $MODELS"
+echo ""
+
+python download_models.py $MODELS
 
 # ── Done ──────────────────────────────────────────────────────────
 echo ""
