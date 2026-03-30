@@ -25,6 +25,9 @@ import os
 import sys
 
 os.environ["HF_HUB_DISABLE_XET"] = "1"
+# hf_transfer accelera i download ma richiede il pacchetto installato.
+# Lo disabilitiamo qui e lo gestiamo esplicitamente sotto.
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 from huggingface_hub import snapshot_download, hf_hub_download
 
 MODELS_DIR = "./models"

@@ -40,7 +40,7 @@ echo "============================================================"
 echo ""
 
 # ── 1. Installa huggingface_hub ──────────────────────────────────
-pip install huggingface_hub -q
+pip install huggingface_hub hf_transfer -q
 
 # ── 2. Clone repo ────────────────────────────────────────────────
 if [ ! -d "$REPO_DIR" ]; then
