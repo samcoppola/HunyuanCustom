@@ -58,7 +58,20 @@ Il setup:
 > ```
 > La compilazione richiede 30+ minuti. Non necessario su GPU consumer.
 
-### 2. Carica la tua immagine
+### 2. Scarica i modelli
+
+```bash
+source .venv/bin/activate
+
+# Caso d'uso principale (Via Appia / image customization) — ~38 GB:
+python download_models.py base image-720p
+
+# Altri modelli (opzionale, uno alla volta per gestire lo spazio):
+python download_models.py base audio-720p      # audio-driven
+python download_models.py base editing-720p    # video editing
+```
+
+### 3. Carica la tua immagine
 
 Carica l'immagine tramite Jupyter in `/workspace/HunyuanCustom/`.
 
