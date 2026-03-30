@@ -39,41 +39,47 @@ Poi lancia lo script di generazione.
 
 ## Caso 2 — Nuovo workspace (da zero)
 
-### 1. Lancia il setup
+Il flusso ottimale usa **due pod separati**: uno CPU economico per scaricare i modelli, uno GPU per installare le dipendenze e generare.
+
+> **Perché separare?** Il venv va creato sul pod GPU — così torch viene installato con la versione CUDA corretta del sistema. Su un pod CPU si installerebbe torch senza CUDA e il modello non userebbe la GPU.
+
+### Step 1 — Pod CPU: clone repo + download modelli (~38 GB)
 
 ```bash
-cd /workspace
-bash /workspace/HunyuanCustom/setup_runpod.sh
-# oppure clona prima: git clone https://github.com/Tencent-Hunyuan/HunyuanCustom.git
+export HF_TOKEN="hf_..."   # opzionale
+bash download_only.sh
 ```
 
-Il setup:
-1. Clona il repo da GitHub
-2. Crea un Python 3.10 venv e installa le dipendenze
-3. Scarica i modelli da HuggingFace (~45 GB)
+Stoppa il pod CPU quando finisce.
 
-> **Flash-attention** (opzionale, migliora la velocità su A100/H100):
+### Step 2 — Pod GPU: venv + dipendenze
+
+Avvia un pod GPU con lo **stesso Network Volume**, poi:
+
+```bash
+cd /workspace/HunyuanCustom
+bash setup_gpu.sh
+```
+
+`setup_gpu.sh` rileva automaticamente la versione CUDA e installa torch corrispondente, poi il resto delle dipendenze.
+
+> **Flash-attention** (opzionale, migliora la velocità su A100/H100, compila in 30+ min):
 > ```bash
-> INSTALL_FLASH_ATTN=true bash setup_runpod.sh
+> INSTALL_FLASH_ATTN=true bash setup_gpu.sh
 > ```
-> La compilazione richiede 30+ minuti. Non necessario su GPU consumer.
 
-### 2. Scarica i modelli
+### Step 3 — Carica la tua immagine
+
+Carica l'immagine tramite Jupyter in `/workspace/HunyuanCustom/`.
+
+### Download modelli aggiuntivi (opzionale)
 
 ```bash
 source .venv/bin/activate
 
-# Caso d'uso principale (Via Appia / image customization) — ~38 GB:
-python download_models.py base image-720p
-
-# Altri modelli (opzionale, uno alla volta per gestire lo spazio):
-python download_models.py base audio-720p      # audio-driven
-python download_models.py base editing-720p    # video editing
+python download_models.py base audio-720p      # audio-driven (~38 GB)
+python download_models.py base editing-720p    # video editing (~38 GB)
 ```
-
-### 3. Carica la tua immagine
-
-Carica l'immagine tramite Jupyter in `/workspace/HunyuanCustom/`.
 
 ---
 
